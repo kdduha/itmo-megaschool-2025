@@ -23,7 +23,7 @@ class DuckDuckGoClient:
         """
         Initializes the DuckDuckGoClient.
         """
-        self._client = DDGS()
+        self._client = DDGS(timeout=1)
 
     def search(self, query: str, num: int, language: str) -> List[Dict]:
         """

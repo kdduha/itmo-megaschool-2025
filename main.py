@@ -1,63 +1,45 @@
 import time
-import os
-import asyncio
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from aiologger import Logger
 from pydantic import HttpUrl
-from dotenv import load_dotenv
 
-from src.clients.google import GoogleSearchClient
-from src.clients.duckduckgo import DuckDuckGoClient
-from src.clients.gpt import OpenAIClient
-from src.constants import SYSTEM_PROMPT, USER_PROMPT
 from src.schemas.request import PredictionRequest, PredictionResponse
 from src.utils.logger import setup_logger
+
+
+from dotenv import load_dotenv
+import os
+
+from langchain_openai import ChatOpenAI
+import json
+from src.agent.agents import ITMOCrew
 
 load_dotenv()
 
 app = FastAPI()
+crew: ITMOCrew | None = None
 logger: Logger | None = None
-
-google_client: GoogleSearchClient | None = None
-duckduckgo_client: DuckDuckGoClient | None = None
-
-gpt_client: OpenAIClient | None = None
-gpt_model: str | None = None
-
-
-def fetch_google_results(query):
-    try:
-        return google_client.search(query=query, num=3, language="lang_ru")
-    except Exception as e:
-        logger.error(f"Failed to parse Google: {e}")
-        return []
-
-
-def fetch_duckduckgo_results(query):
-    try:
-        return duckduckgo_client.search(query=query, num=5, language="ru-ru")
-    except Exception as e:
-        logger.error(f"Failed to parse DuckDuckGo: {e}")
-        return []
 
 
 @app.on_event("startup")
 async def startup_event():
-    global logger, google_client, duckduckgo_client, gpt_client, gpt_model
+    global logger, crew
+
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_api_base = os.getenv("OPENAI_API_BASE")
+    model = os.getenv("OPENAI_MODEL")
 
     logger = await setup_logger()
 
-    google_search_api_key = os.getenv("GOOGLE_SEARCH_API_KEY")
-    google_search_cx = os.getenv("GOOGLE_SEARCH_CX")
-    google_client = GoogleSearchClient(google_search_api_key, google_search_cx)
+    gpt = ChatOpenAI(
+        openai_api_base=openai_api_base,
+        openai_api_key=openai_api_key,
+        model_name=model,
+    )
 
-    duckduckgo_client = DuckDuckGoClient()
-
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    openai_tunnel_url = os.getenv("OPENAI_TUNNEL_URL")
-    gpt_client = OpenAIClient(openai_api_key, openai_tunnel_url, SYSTEM_PROMPT)
-    gpt_model = os.getenv("OPENAI_MODEL")
+    crew = ITMOCrew()
+    crew.init_model(gpt)
 
 
 @app.middleware("http")
@@ -97,22 +79,14 @@ async def predict(body: PredictionRequest):
     try:
         await logger.info(f"Processing prediction request with id: {body.id}")
 
-        query = body.query
-        search_query = query.split("\n")[0]
-
-        google_results, duckduckgo_results = await asyncio.gather(
-            asyncio.to_thread(fetch_google_results, search_query),
-            asyncio.to_thread(fetch_duckduckgo_results, search_query)
-        )
-
-        gpt_query = USER_PROMPT.format(duckduckgo_results, google_results, query)
-
-        response = gpt_client.chat_completion(query, gpt_model)
+        inputs = {'search_query': body.query}
+        response = await crew.crew().kickoff_async(inputs=inputs)
+        response = json.loads(response.json)
 
         prediction_response = PredictionResponse(
             id=body.id,
             answer=response.get("answer", 0),
-            reasoning=f'{gpt_model}: {response.get("reasoning", "No reasoning provided")}',
+            reasoning=f'{os.getenv("OPENAI_MODEL")}: {response.get("reasoning", "No reasoning provided")}',
             sources=[HttpUrl(source) for source in response.get("sources")],
         )
 

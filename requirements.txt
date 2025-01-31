@@ -5,5 +5,7 @@ uvicorn
 gunicorn
 python-dotenv
 duckduckgo_search
-openai
 requests
+pydantic
+crewai
+langchain-openai
