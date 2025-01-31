@@ -2,13 +2,13 @@ from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task, after_kickoff
 
 from src.agent.tools import search_tool
+from crewai_tools import SerperDevTool
 
 from langchain_openai import ChatOpenAI
 
 from typing import List
 
 from pydantic import BaseModel
-
 
 class PredictionResponse(BaseModel):
     answer: int
@@ -23,6 +23,12 @@ class ITMOCrew:
 
     def __init__(self):
         self.model: ChatOpenAI | None = None
+        self.serper_dev_tool = SerperDevTool(
+            country="ru",
+            locale="ru",
+            location="Russia",
+            n_results=5,
+        )
 
     def init_model(self, model: ChatOpenAI):
         self.model = model
@@ -31,7 +37,7 @@ class ITMOCrew:
     def researcher(self) -> Agent:
         return Agent(
             config=self.agents_config['researcher'],
-            tools=[search_tool],
+            tools=[search_tool, self.serper_dev_tool],
             verbose=False,
             memory=True,
             llm=self.model
@@ -42,15 +48,16 @@ class ITMOCrew:
         return Task(
             config=self.tasks_config['research_task'],
             agent=self.researcher(),
-            output_json=PredictionResponse
+            output_json=PredictionResponse,
+            async_execution=True,
         )
 
     @crew
     def crew(self) -> Crew:
-        """Creates the MarketingPosts crew"""
         return Crew(
             agents=self.agents,
             tasks=self.tasks,
+            process=Process.sequential,
             verbose=False,
             async_execution=True,
             cache=True,

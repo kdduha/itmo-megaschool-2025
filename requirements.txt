@@ -9,3 +9,4 @@ requests
 pydantic
 crewai
 langchain-openai
+crewai[tools]
