@@ -53,4 +53,5 @@ class ITMOCrew:
             tasks=self.tasks,
             verbose=False,
             async_execution=True,
+            cache=True,
         )
